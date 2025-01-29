@@ -1,17 +1,7 @@
 format ELF64
 
 ; Raylib
-extrn InitWindow
-extrn SetTargetFPS
-extrn WindowShouldClose
-extrn CloseWindow
-extrn GetTime
-
-extrn BeginDrawing
-extrn EndDrawing
-extrn ClearBackground
-extrn MeasureText
-extrn DrawText
+include 'raylib.inc'
 
 ; symbolic constants
 ;
