@@ -1,215 +1,233 @@
 format ELF64
+public _start
 
-; Raylib
+include 'print.inc'
 include 'raylib.inc'
 
-; symbolic constants
-;
-SCREEN_SIZE equ 800
-FONT_SIZE equ 64
+SCREEN_SIZE = 800
+GRAVITY = dword 600.0
+RADIUS = dword 80.0
+DAMP = dword -0.9
+SPEED_MAX_VAL = dword 5000.0
 
-section '.data' writable
-pos:
-   dd 0.0
-   dd 0.0
-dir: 
-   dd 1.0
-   dd 1.0
-
-text_width: dd 0.0
-
-zero: dd 0.0
-twenty: dq 20.0
-minus_one: dd -1.0
-
-speed: dd 8.0
-
-background: db 0x18, 0x18, 0x18, 0xFF
-color: db 0xFF, 0x00, 0x00, 0xFF
-
-msg: db "Hello from Asm", 10, 0 ; newline and null
-title: db "Hello Asm", 0
-fmt: db "value: %f", 10, 0
-
-; code
-section '.text' executable
-extrn printf
-extrn _exit
-
-draw_text:
-    push rbp
-    mov rbp, rsp
-
-    mov rdi, msg 
+; pos and vel must be adresses
+macro collide_wall wall, pos, vel, jump {
+    local .less
+    local .greater
+    local .continue
+    local .next
+    movss xmm0, wall
     movss xmm1, [pos]
-    cvtss2si esi, xmm1
-    movss xmm1, [pos+4]
-    cvtss2si edx, xmm1
-    mov ecx, FONT_SIZE
-    mov r8, [color]
-    call DrawText
-
-    pop rbp
-    ret
-
-debug_print:
-    push rbp
-
-    mov rdi, fmt
-    call printf
- 
-    pop rbp
-    ret
-
-; dir offset, pos offset, xmm0 value
-bounce:
-    push rbp
-    mov rbp, rsp
-    
-    ; set pos
-    mov rax, pos
-
-    add rax, rsi
-    movss [rax], xmm0
-
-    ; negate dir
-    mov rax, dir
-    add rax, rdi
-    movss xmm0, [rax]
-    mulss xmm0, [minus_one]
-    movss [rax], xmm0
-
-    pop rbp
-    ret
-
-check_collisions:
-    push rbp
-    mov rbp, rsp
-
-    mov rax, SCREEN_SIZE
-    mov rbx, FONT_SIZE
-
-    ; Window width
-    cvtsi2ss xmm0, rax
-    subss xmm0, [text_width] ; x - width
-    movss xmm1, [pos]
+    movss xmm2, [vel]
+    comiss xmm2, [zero]
 
     comiss xmm1, xmm0
-    jb .width
+    jump .next
 
-    mov rdi, 0
-    mov rsi, 0
-    call bounce
-    jmp .collide_y
-.width:
-    comiss xmm1, [zero]
-    ja .collide_y
-
-    movss xmm0, [zero]
-    mov rdi, 0
-    mov rsi, 0
-    call bounce
-
-.collide_y:
-    ; Window height
-    cvtsi2ss xmm0, rax
-    cvtsi2ss xmm2, rbx
-    movss xmm1, [pos+4]
-    subss xmm0, xmm2 ; y - font size
-    comiss xmm1, xmm0
-    jb .height
-    ; colide
-    mov rdi, 4
-    mov rsi, 4
-    call bounce
-
-.height:
-    comiss xmm1, [zero]
-    ja .continue
-    ; colide
-    movss xmm0, [zero]
-    mov rdi, 4
-    mov rsi, 4
-    call bounce
-
-.continue:
-    pop rbp
-    ret
-
-public _start
-_start:
-    mov rbp, rsp ; setup stack frame by putting top of stack in rbp
-
-    mov rdi, SCREEN_SIZE
-    mov rsi, SCREEN_SIZE
-    mov rdx, title
-    call InitWindow
-
-    mov rdi, 60
-    call SetTargetFPS
-
-
-    ; initialize position
-    mov rdi, msg
-    mov rsi, FONT_SIZE
-    call MeasureText
-    ; x
-    mov ebx, SCREEN_SIZE
-    sub ebx, eax ; text width
-    shr ebx, 1
-    cvtsi2ss xmm0, ebx
     movss [pos], xmm0
-    ; y
-    mov ebx, SCREEN_SIZE
-    sub ebx, FONT_SIZE
-    shr ebx, 1
-    cvtsi2ss xmm0, ebx
-    movss [pos+4], xmm0
-    ; store text size
-    cvtsi2ss xmm0, eax
-    movss [text_width], xmm0
+    mov eax, DAMP
+    movd xmm0, eax
+    mulss xmm2, xmm0
+    movss [vel], xmm2
+    play_sound bounce
+.next:
+}
 
-.again:
-    call WindowShouldClose
-    test rax, rax ; if rax && rax
+section '.data' writeable
+
+delta_time dd ?
+title db "ASM Physics", 0
+text db "FASM", 0
+sound_file file 'res/bounce.wav'
+sound_size = $ - sound_file
+bounce rb 40
+
+;; BALL
+is_held db 0
+pos Vec2 0.0, 0.0
+color Color 255, 0, 255, 255
+vel Vec2 0.0, 0.0
+
+zero dd 0.0, 0.0
+
+section '.text' executable
+_start:
+    mov rbp, rsp
+    sub rsp, 32 ; allocate for le Wave
+
+    ; init
+    init_window SCREEN_SIZE, SCREEN_SIZE, title
+    set_target_fps 120
+    call InitAudioDevice
+    lea rax, [rbp-32]
+    load_wave_from_memory rax, ".wav", sound_file, sound_size
+    lea rbx, [rbp-32]
+    load_sound_from_wav bounce, rbx
+
+    ; center ball
+    mov eax, SCREEN_SIZE
+    mov edx, 0.5
+    cvtsi2ss xmm0, eax
+    movd xmm1, edx
+    mulss xmm0, xmm1
+    movss [pos.x], xmm0
+    movss [pos.y], xmm0
+
+.main_loop:
+    window_should_close
     jnz .end
 
-    call check_collisions
+    call GetFrameTime
+    movss [delta_time], xmm0
+    
+    call update
 
-    ; update xpos
-    movss xmm0, [dir]
-    mulss xmm0, [speed]
-    movss xmm1, [pos]
+    ; Color
+    movss xmm0, [vel.x]
+    movss xmm1, [vel.y]
+    mulss xmm0, xmm0
+    mulss xmm1, xmm1
     addss xmm0, xmm1
-    movss [pos], xmm0
-    ; update ypos
-    movss xmm0, [dir+4]
-    mulss xmm0, [speed]
-    movss xmm1, [pos+4]
-    addss xmm1, xmm0
-    movss [pos+4], xmm1
+    mov eax, SPEED_MAX_VAL
+    movd xmm1, eax
+    mulss xmm1, xmm1
+    divss xmm0, xmm1
+    mov eax, 255.0
+    movd xmm1, eax
+    mulss xmm0, xmm1
+    cvtss2si eax, xmm0
+    cmp eax, 255
+    jl .clamp_done
+    mov eax, 255
+.clamp_done:
+    mov byte [color.r], al
+    mov cl, 255
+    sub cl, al
+    mov byte [color.b], cl
 
-    ; Colors
-    call GetTime
-    mulsd xmm0, [twenty]
-    cvtsd2si rax, xmm0
-    mov byte [color+2], al
-    mov dl, 255
-    sub dl, al
-    mov byte [color+1], dl
-
+    ; drawing
     call BeginDrawing
-
-    mov rdi, [background]
-    call ClearBackground
-
-    call draw_text
+    ; text
+    clear_background 0xFF18181818
+    font_size = 100
+    measure_text text, font_size
+    mov rcx, SCREEN_SIZE
+    sub rcx, rax
+    shr rcx, 1
+    draw_text text, rcx, (SCREEN_SIZE-font_size)/4, font_size, 0xFFAAAAAA
+    draw_circle pos, RADIUS, [color]
 
     call EndDrawing
-
-    jmp .again
+   
+    jmp .main_loop
 .end:
+    call CloseWindow
+
     mov rdi, 0
+    mov rsp, rbp
     call _exit
+
+
+update:
+    push rbp
+    mov rbp, rsp
+
+    mov al, [is_held]
+    test al, al
+    jnz .pos
+
+    ; gravity
+    mov eax, GRAVITY 
+    movd xmm0, eax
+    mulss xmm0, [delta_time]
+    movss xmm1, [vel.y]
+    addss xmm1, xmm0
+    movss [vel.y], xmm1
+
+.pos:
+    call collision
+    call mouse_update
+
+    ; update pos
+    movss xmm0, [vel.x]
+    mulss xmm0, [delta_time]
+    movss xmm1, [pos.x]
+    addss xmm1, xmm0
+    movss [pos.x], xmm1
+
+    movss xmm0, [vel.y]
+    mulss xmm0, [delta_time]
+    movss xmm1, [pos.y]
+    addss xmm1, xmm0
+    movss [pos.y], xmm1
+
+    pop rbp
+    ret
+
+mouse_update:
+.mouse_y equ rbp-4
+.mouse_x equ rbp-8
+    push rbp
+    mov rbp, rsp
+    sub rsp, 8
+
+    ; get mouse pos
+    call GetMousePosition
+    movq [.mouse_x], xmm0 ; x vs y is endian specific
+
+    ; Mouse Collision
+    check_collision_point_circle [pos], RADIUS, [.mouse_x]
+    push rbx ; must restore this mf
+    mov bl, al
+    mov rdi, MOUSE_BUTTON_LEFT
+    call IsMouseButtonDown
+    and bl, al
+    and al, [is_held]
+    or bl, al
+    mov [is_held], bl
+    test bl, bl
+    pop rbx
+    jz .skip
+    
+    ; Move ball
+    movss xmm0, [.mouse_x]
+    subss xmm0, [pos.x] ; dx
+    movss xmm1, [.mouse_y]
+    subss xmm1, [pos.y] ; dy
+    mov eax, 0.1
+    movd xmm2, eax
+    divss xmm0, xmm2
+    divss xmm1, xmm2
+    movss [vel.x], xmm0
+    movss [vel.y], xmm1
+
+.skip:
+    mov rsp, rbp
+    pop rbp
+    ret
+
+collision:
+; local variables
+screen_bound equ rbp-4
+radius equ rbp-8
+    push rbp
+    mov rbp, rsp
+
+    ; setup local vars
+    mov eax, SCREEN_SIZE
+    mov edx, RADIUS
+    cvtsi2ss xmm0, eax
+    movd xmm1, edx
+    subss xmm0, xmm1
+    movd [screen_bound], xmm0
+    mov dword [radius], RADIUS
+    
+    collide_wall [screen_bound], pos.x, vel.x, jb 
+    collide_wall [radius], pos.x, vel.x, ja
+    collide_wall [screen_bound], pos.y, vel.y, jb
+    collide_wall [radius], pos.y, vel.y, ja
+
+    pop rbp
+    ret
 
 section '.note.GNU-stack'

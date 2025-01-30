@@ -83,7 +83,6 @@ macro print_float fmt, [arg] {
         ; counter
         local i
         i = 1
-    ; per arg 1
     forward
         movss xmm6, arg
         cvtss2sd xmm6, xmm6

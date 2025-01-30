@@ -1,19 +1,19 @@
 LIBS = -lraylib -lm -lc 
 LD = /lib64/ld-linux-x86-64.so.2
 
-all: physics
+all: main
 
 main: main.o
 	ld $^ $(LIBS) -dynamic-linker $(LD)
 	rm $^
 
-main.o: main.asm
+main.o: main.asm raylib.inc
 	fasm main.asm
 
-physics.o: physics.asm raylib.inc
-	fasm physics.asm
+hello.o: hello.asm raylib.inc
+	fasm hello.asm
 
-physics: physics.o
+hello: hello.o
 	ld $^ $(LIBS) -dynamic-linker $(LD)
 	rm $^
 
