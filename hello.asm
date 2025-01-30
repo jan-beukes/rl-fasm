@@ -36,7 +36,7 @@ section '.text' executable
 extrn printf
 extrn _exit
 
-draw_text:
+draw_msg_text:
     push rbp
     mov rbp, rsp
 
@@ -203,7 +203,7 @@ _start:
     mov rdi, [background]
     call ClearBackground
 
-    call draw_text
+    call draw_msg_text
 
     call EndDrawing
 

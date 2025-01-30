@@ -6,15 +6,12 @@ include 'raylib.inc'
 
 SCREEN_SIZE = 800
 GRAVITY = dword 600.0
-RADIUS = dword 80.0
+RADIUS = dword 70.0
 DAMP = dword -0.9
 SPEED_MAX_VAL = dword 5000.0
 
 ; pos and vel must be adresses
 macro collide_wall wall, pos, vel, jump {
-    local .less
-    local .greater
-    local .continue
     local .next
     movss xmm0, wall
     movss xmm1, [pos]
@@ -29,6 +26,9 @@ macro collide_wall wall, pos, vel, jump {
     movd xmm0, eax
     mulss xmm2, xmm0
     movss [vel], xmm2
+    mov al, [is_held]
+    test al, al
+    jnz .next
     play_sound bounce
 .next:
 }
@@ -40,14 +40,23 @@ title db "ASM Physics", 0
 text db "FASM", 0
 sound_file file 'res/bounce.wav'
 sound_size = $ - sound_file
+among_file file 'res/cyan.png'
+among_file_size = $ - among_file
+
 bounce rb 40
+among_tex rb 20
 
 ;; BALL
 is_held db 0
 pos Vec2 0.0, 0.0
-color Color 255, 0, 255, 255
+color Color 255, 255, 255, 255
 vel Vec2 0.0, 0.0
 
+src_rect dd 0.0, 0.0, 0.0, 0.0
+dst_rect dd 100.0, 100.0, 0.0, 0.0
+origin dd 0.0, 0.0
+
+half dd 0.5, 0.5
 zero dd 0.0, 0.0
 
 section '.text' executable
@@ -60,15 +69,30 @@ _start:
     set_target_fps 120
     call InitAudioDevice
     lea rax, [rbp-32]
+    ; Resources
     load_wave_from_memory rax, ".wav", sound_file, sound_size
     lea rbx, [rbp-32]
     load_sound_from_wav bounce, rbx
+    lea rbx, [rbp-32]
+    load_image_from_memory rbx, ".png", among_file, among_file_size
+    load_texture_from_image among_tex, rbx
+    
+    ; Texture drawing rects
+    cvtsi2ss xmm0, dword [among_tex+4]
+    movss [src_rect+8], xmm0
+    movss [dst_rect+8], xmm0
+    mulss xmm0, dword [half]
+    movss [origin], xmm0
+    cvtsi2ss xmm0, dword [among_tex+8]
+    movss [src_rect+12], xmm0
+    movss [dst_rect+12], xmm0
+    mulss xmm0, dword [half]
+    movss [origin+4], xmm0
 
     ; center ball
     mov eax, SCREEN_SIZE
-    mov edx, 0.5
     cvtsi2ss xmm0, eax
-    movd xmm1, edx
+    movd xmm1, dword [half]
     mulss xmm0, xmm1
     movss [pos.x], xmm0
     movss [pos.y], xmm0
@@ -92,21 +116,22 @@ _start:
     movd xmm1, eax
     mulss xmm1, xmm1
     divss xmm0, xmm1
-    mov eax, 255.0
+    mov eax, 180.0
     movd xmm1, eax
     mulss xmm0, xmm1
     cvtss2si eax, xmm0
-    cmp eax, 255
+    cmp eax, 180
     jl .clamp_done
-    mov eax, 255
+    mov eax, 180
 .clamp_done:
-    mov byte [color.r], al
     mov cl, 255
     sub cl, al
     mov byte [color.b], cl
+    mov byte [color.g], cl
 
     ; drawing
     call BeginDrawing
+
     ; text
     clear_background 0xFF18181818
     font_size = 100
@@ -115,7 +140,19 @@ _start:
     sub rcx, rax
     shr rcx, 1
     draw_text text, rcx, (SCREEN_SIZE-font_size)/4, font_size, 0xFFAAAAAA
-    draw_circle pos, RADIUS, [color]
+
+    ; SUS
+    call GetTime
+    ; Rotatione
+    mov rax, 180.0
+    movq xmm1, rax
+    mulsd xmm0, xmm1
+    cvtsd2ss xmm0, xmm0
+    movd dword [rbp-4], xmm0
+    ; Update src rect
+    mov rax, qword [pos]
+    mov qword [dst_rect], rax
+    draw_texture among_tex, src_rect, dst_rect, origin, [rbp-4], [color]
 
     call EndDrawing
    
